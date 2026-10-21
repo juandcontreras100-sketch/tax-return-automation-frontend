@@ -1,36 +1,74 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Taxfrom value — Frontend Fase 7
 
-## Getting Started
+Aplicación Next.js 16 (App Router, React 19, Tailwind 4) conectada a la API FastAPI del proyecto.
 
-First, run the development server:
+## Requisitos
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+- Node.js 20+
+- Backend en `http://127.0.0.1:8080`
+- Variables en `.env.local` (copia `.env.local.example`)
+
+```dotenv
+NEXT_PUBLIC_API_URL=http://127.0.0.1:8080/api
+NEXT_PUBLIC_WS_URL=ws://127.0.0.1:8080/api/v1/ws
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Desarrollo
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```powershell
+npm ci
+npm run dev
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Abre `http://localhost:3001`.
 
-## Learn More
+## Verificación
 
-To learn more about Next.js, take a look at the following resources:
+```powershell
+npx next typegen
+npm run lint
+npx tsc --noEmit --incremental false
+npm run build
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+`npm run dev` y `npm run start` usan el puerto **3001**. El frontend no debe ejecutar `next build` mientras el servidor de desarrollo está escribiendo `.next`; detén el dev server o usa otro directorio de build.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Rutas
 
-## Deploy on Vercel
+| Ruta | Uso |
+|---|---|
+| `/` | Redirección según sesión |
+| `/login`, `/register` | Autenticación real contra `/api/v1/auth` |
+| `/dashboard` | Declaraciones del usuario, filtros y paginación |
+| `/declarations/new` | Wizard de carga multipart |
+| `/declarations/[id]/processing` | Progreso WebSocket y polling de respaldo |
+| `/declarations/[id]` | Resultados, casillas y PDF autenticado |
+| `/accountant` | Cartera del contador/admin |
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Sesión
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Los tokens se guardan en `sessionStorage` y se validan con `GET /auth/me` al hidratar. El refresh se hace una sola vez por petición (single-flight). Para producción se recomienda migrar a cookies `httpOnly` con un BFF, porque `sessionStorage` es vulnerable a XSS.
+
+## Demo local
+
+Credenciales solo para desarrollo, creadas por los scripts de seed:
+
+- Contribuyente: `demo.phase7@gmail.com` / `Demo1234`
+- Administrador de firma: `contador.phase7@gmail.com` / `Contador1234`
+- Contador: `revisor.phase7@gmail.com` / `Revisor1234`
+
+No usar estas credenciales ni datos demo en producción.
+
+## Contador y correcciones
+
+- El contador ve solo clientes con `accountant_id === user.id`; el administrador ve todos los clientes y puede asignar o desasignar contadores.
+- El administrador no ve automáticamente las declaraciones de los clientes: RLS exige que un contador esté asignado. La interfaz lo explica.
+- La cartera carga hasta 100 clientes y consulta declaraciones de los primeros 30; si hay más, se muestra un aviso.
+- Las correcciones usan `PATCH /declarations/{id}/values/{field_code}`. Un valor sin documento de origen se guarda con `document_id: null` y conserva la auditoría.
+
+## Notas
+
+- El PDF se descarga con `fetch` + `Authorization`; un `<a href>` directo devuelve 401.
+- El WebSocket real es `/api/v1/ws/jobs/{job_id}`. No requiere token en el contrato actual; no exponerlo a Internet sin autenticación de borde.
+- Los errores 422 de FastAPI se normalizan a texto legible en `src/lib/api.ts`.
+- El Formulario 210 se presenta en el portal DIAN con IFE; el adaptador `.pfx`/XAdES del backend no es un canal oficial del F210. Ver `../tax-return-backend/docs/DIAN_F210_VALIDACION.md`.
