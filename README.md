@@ -66,6 +66,21 @@ No usar estas credenciales ni datos demo en producción.
 - La cartera carga hasta 100 clientes y consulta declaraciones de los primeros 30; si hay más, se muestra un aviso.
 - Las correcciones usan `PATCH /declarations/{id}/values/{field_code}`. Un valor sin documento de origen se guarda con `document_id: null` y conserva la auditoría.
 
+## Contenedor
+
+El `Dockerfile` usa salida `standalone` y requiere que las URLs públicas se
+inyecten en tiempo de build:
+
+```powershell
+docker build -t tax-return-frontend:latest `
+  --build-arg NEXT_PUBLIC_API_URL=https://api.example.com/api `
+  --build-arg NEXT_PUBLIC_WS_URL=wss://api.example.com/api/v1/ws .
+docker run --rm -p 3001:3001 tax-return-frontend:latest
+```
+
+El stack completo y los secretos se documentan en
+`../tax-return-backend/docs/DEPLOYMENT.md`.
+
 ## Notas
 
 - El PDF se descarga con `fetch` + `Authorization`; un `<a href>` directo devuelve 401.
