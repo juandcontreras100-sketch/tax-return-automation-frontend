@@ -317,6 +317,7 @@ function ProcessingScreen({ declarationId }: { declarationId: string }) {
 
   const connection = useJobSocket({
     jobId,
+    token: accessToken,
     isProcessing,
     dispatch,
   });

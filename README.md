@@ -84,6 +84,6 @@ El stack completo y los secretos se documentan en
 ## Notas
 
 - El PDF se descarga con `fetch` + `Authorization`; un `<a href>` directo devuelve 401.
-- El WebSocket real es `/api/v1/ws/jobs/{job_id}`. No requiere token en el contrato actual; no exponerlo a Internet sin autenticación de borde.
+- El WebSocket real es `/api/v1/ws/jobs/{job_id}?token=<JWT>`. El backend valida el token y que el trabajo pertenezca al usuario; sin token responde cierre 4401 y con otro dueño 4403.
 - Los errores 422 de FastAPI se normalizan a texto legible en `src/lib/api.ts`.
 - El Formulario 210 se presenta en el portal DIAN con IFE; el adaptador `.pfx`/XAdES del backend no es un canal oficial del F210. Ver `../tax-return-backend/docs/DIAN_F210_VALIDACION.md`.

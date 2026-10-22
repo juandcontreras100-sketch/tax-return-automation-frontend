@@ -38,6 +38,7 @@ export type JobSocketConnection = {
 
 type UseJobSocketOptions = {
   jobId: string | null;
+  token: string | null;
   isProcessing: boolean;
   dispatch: (action: JobSocketAction) => void;
 };
@@ -87,8 +88,9 @@ export const JOB_SOCKET_BASE_URL = normalizeWsBaseUrl(
   configuredWsUrl || FALLBACK_WS_BASE_URL,
 );
 
-export function jobSocketUrl(jobId: string): string {
-  return `${JOB_SOCKET_BASE_URL}/jobs/${encodeURIComponent(jobId)}`;
+export function jobSocketUrl(jobId: string, token: string): string {
+  const url = `${JOB_SOCKET_BASE_URL}/jobs/${encodeURIComponent(jobId)}`;
+  return `${url}?token=${encodeURIComponent(token)}`;
 }
 
 function isJobSocketEvent(
@@ -114,6 +116,7 @@ function isJobSocketEvent(
 
 export function useJobSocket({
   jobId,
+  token,
   isProcessing,
   dispatch,
 }: UseJobSocketOptions): JobSocketConnection {
@@ -131,11 +134,12 @@ export function useJobSocket({
   }, [isProcessing]);
 
   useEffect(() => {
-    if (!jobId || !isProcessing) {
+    if (!jobId || !token || !isProcessing) {
       return;
     }
 
     const currentJobId = jobId;
+    const currentToken = token;
     let socket: WebSocket | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let manuallyClosed = false;
@@ -192,7 +196,7 @@ export function useJobSocket({
 
       let nextSocket: WebSocket;
       try {
-        nextSocket = new WebSocket(jobSocketUrl(currentJobId));
+        nextSocket = new WebSocket(jobSocketUrl(currentJobId, currentToken));
       } catch {
         scheduleReconnect();
         return;
@@ -273,6 +277,23 @@ export function useJobSocket({
           return;
         }
 
+        // 4401/4403: token ausente, inválido o el trabajo es de otro usuario.
+        if (closeEvent.code === 4401 || closeEvent.code === 4403) {
+          const message =
+            "La sesión no autoriza el canal en vivo. Seguiremos consultando el estado.";
+          setConnection((current) => ({
+            ...current,
+            status: "failed",
+            lastError: message,
+          }));
+          dispatchRef.current({
+            type: "SOCKET_ERROR",
+            message,
+            terminal: true,
+          });
+          return;
+        }
+
         // 4404: el trabajo ya no existe (o expiró). No tiene sentido reintentar.
         if (closeEvent.code === 4404) {
           const message = "El trabajo de procesamiento no existe o ya expiró.";
@@ -314,7 +335,7 @@ export function useJobSocket({
       }
       socket?.close();
     };
-  }, [isProcessing, jobId]);
+  }, [isProcessing, jobId, token]);
 
   return jobId && isProcessing ? connection : idleConnection;
 }
