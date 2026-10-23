@@ -200,7 +200,8 @@ npm run build
 
 Los cuatro comandos pasan. El build de producción incluye
 `/accountant/invitations` y `/invitations/[token]`; las rutas dinámicas quedan
-como *Partial Prerender*.
+como *Partial Prerender*. CI frontend (`frontend-ci`, run `39895031701`) en
+**success**.
 
 ### Límites y siguiente paso
 - La aceptación real de la UI no se probó en vivo para no convertir la cuenta de
