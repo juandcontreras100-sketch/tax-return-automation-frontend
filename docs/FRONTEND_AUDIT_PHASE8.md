@@ -150,3 +150,65 @@ invitado tampoco tiene una ruta para ver, aceptar o rechazar. Esto deja la Fase
 La siguiente captura (`audit-after-1`) debe comparar el mismo alcance y métrica
 después de aplicar el cambio de fuente y los boundaries. Cualquier ahorro de
 red real se mide con el proxy de producción, no con `next analyze`.
+
+## 6. Ejecución Fase 9 P0 — UI de invitaciones (2026-10-22)
+
+Estado: **entregada en código y validada localmente; el P0 de sesión/BFF sigue
+pendiente**. La aceptación real no se ejecutó en vivo para no alterar la firma
+demo.
+
+### Entregado
+- Tipos y cliente API para crear/listar/revocar invitaciones, listar las propias,
+  previsualizar, aceptar y rechazar.
+- `/accountant/invitations`: creación con email y rol, token mostrado una sola
+  vez, copia del enlace, confirmación para crear otra invitación, listado con
+  filtro por estado, paginación y revocación en dos pasos. Solo admin.
+- `/invitations/[token]`: preview, aceptación con checkbox explícito, rechazo en
+  dos pasos, aviso si la cuenta ya pertenece a una firma y estados `404`, `409`,
+  `410` y `422`.
+- Login con `next` interno y validado (`safeInternalPath`), para volver a la
+  invitación después de autenticarse.
+- Aviso de invitaciones pendientes en `/dashboard` sin token, porque el listado
+  no lo devuelve; la acción se hace desde el enlace recibido.
+- Acción **Gestionar invitaciones** en `/accountant` para administradores.
+
+### Validación local
+- Crear, copiar y revocar una invitación; al revocar la misma invitación se
+  limpia la tarjeta con el token y vuelve el formulario de creación.
+- Email incorrecto: un admin que abre un enlace ajeno recibe `404` y la opción
+  de cerrar sesión y usar otra cuenta.
+- Flujo `login` con `next`: sin sesión se muestra el prompt de login; al
+  autenticarse se vuelve al preview de la invitación. Un `next` externo
+  (`https://evil.example/...`) se descarta y redirige a `/dashboard`.
+- Rechazo real con `invitado.ui.20261022@example.com`: pantalla de éxito, el
+  aviso de pendientes desaparece del dashboard y reabrir el enlace devuelve
+  `409`.
+- El checkbox habilita **Aceptar invitación** sin ejecutar la aceptación.
+- Filtro **Pendientes** sin resultados después de revocar la última invitación.
+- Viewport `390×844`: gestión, preview y estado `409` con
+  `innerWidth=390` y `scrollWidth=390` (sin overflow horizontal).
+- Next MCP: `get_errors` sin errores de configuración/sesión y
+  `get_compilation_issues` vacío antes de detener el dev server.
+
+### Verificación de build
+```powershell
+npx next typegen
+npm run lint
+npx tsc --noEmit --incremental false
+npm run build
+```
+
+Los cuatro comandos pasan. El build de producción incluye
+`/accountant/invitations` y `/invitations/[token]`; las rutas dinámicas quedan
+como *Partial Prerender*.
+
+### Límites y siguiente paso
+- La aceptación real de la UI no se probó en vivo para no convertir la cuenta de
+  prueba en cliente de la firma demo. La cubren las pruebas backend de
+  aceptación, bloqueo de transferencia y auditoría.
+- Datos de prueba: `invitado.ui.20261022@example.com` quedó registrado y sin
+  firma; sus invitaciones de prueba quedaron rechazadas o revocadas. No se
+  agregaron clientes a la firma demo.
+- El P0 de sesión sigue abierto: cookies `httpOnly` + BFF + CSRF, sin tokens en
+  `sessionStorage`. Después siguen el WebSocket sin JWT en query y los E2E
+  automatizados.

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState, type ReactNode } from "react";
 import AppShell, { AuthLoading } from "@/components/AppShell";
+import PendingInvitations from "@/components/invitations/PendingInvitations";
 import { errorMessage, listDeclarations } from "@/lib/api";
 import { useRequireAuth } from "@/lib/auth";
 import type { DeclarationListItem, Pagina, UserRole } from "@/lib/types";
@@ -229,6 +230,10 @@ export default function DashboardPage() {
             </Link>
           </div>
         </section>
+
+        {accessToken && user && !user.firm_id && (
+          <PendingInvitations token={accessToken} />
+        )}
 
         <section
           aria-labelledby="declarations-title"

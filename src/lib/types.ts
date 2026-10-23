@@ -155,6 +155,39 @@ export interface FirmMember {
   accountant_id: string | null;
 }
 
+export type FirmInvitationRole = "accountant" | "taxpayer";
+
+export type FirmInvitationStatus =
+  | "pending"
+  | "accepted"
+  | "rejected"
+  | "revoked"
+  | "expired";
+
+export interface FirmInvitation {
+  id: string;
+  firm_id: string;
+  firm_name: string;
+  email: string;
+  role: FirmInvitationRole;
+  status: FirmInvitationStatus;
+  expires_at: string;
+  created_at: string;
+  responded_at: string | null;
+  invited_by_user_id: string | null;
+}
+
+export interface FirmInvitationCreated extends FirmInvitation {
+  /** Token en claro: la API solo lo devuelve en la respuesta de creación. */
+  token: string;
+}
+
+export interface FirmInvitationListParams {
+  page?: number;
+  page_size?: number;
+  status?: FirmInvitationStatus;
+}
+
 export class ApiError extends Error {
   readonly status: number;
   readonly detail: string;

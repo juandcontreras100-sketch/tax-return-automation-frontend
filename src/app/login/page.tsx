@@ -1,18 +1,21 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useEffect, useState, type FormEvent } from "react";
-import { Brand } from "@/components/AppShell";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState, type FormEvent } from "react";
+import { AuthLoading, Brand } from "@/components/AppShell";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
 import Input from "@/components/ui/Input";
 import { errorMessage } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { safeInternalPath } from "@/lib/navigation";
 
-export default function LoginPage() {
+function LoginPageContent() {
   const { ready, user, login } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const redirectTo = safeInternalPath(searchParams.get("next"));
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -20,9 +23,9 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (ready && user) {
-      router.replace("/dashboard");
+      router.replace(redirectTo);
     }
-  }, [ready, router, user]);
+  }, [ready, redirectTo, router, user]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -39,7 +42,7 @@ export default function LoginPage() {
 
     try {
       await login(email, password);
-      router.replace("/dashboard");
+      router.replace(redirectTo);
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
@@ -154,5 +157,13 @@ export default function LoginPage() {
         )}
       </div>
     </main>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<AuthLoading />}>
+      <LoginPageContent />
+    </Suspense>
   );
 }

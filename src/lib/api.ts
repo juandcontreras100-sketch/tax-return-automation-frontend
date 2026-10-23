@@ -7,6 +7,10 @@ import {
   type DeclarationListParams,
   type DianCapabilities,
   type Firm,
+  type FirmInvitation,
+  type FirmInvitationCreated,
+  type FirmInvitationListParams,
+  type FirmInvitationRole,
   type FirmMember,
   type Pagina,
   type RegisterPayload,
@@ -469,5 +473,91 @@ export async function assignClientAccountant(
       token,
       json: { accountant_id: accountantId },
     },
+  );
+}
+
+function buildInvitationSearch(params: FirmInvitationListParams): string {
+  const search = new URLSearchParams({
+    page: String(params.page ?? 1),
+    page_size: String(params.page_size ?? 20),
+  });
+  if (params.status) {
+    search.set("status", params.status);
+  }
+  return search.toString();
+}
+
+export async function createFirmInvitation(
+  token: string,
+  payload: { email: string; role: FirmInvitationRole },
+): Promise<FirmInvitationCreated> {
+  return request<FirmInvitationCreated>("/v1/firms/me/invitations", {
+    method: "POST",
+    token,
+    json: payload,
+  });
+}
+
+export async function listFirmInvitations(
+  token: string,
+  params: FirmInvitationListParams = {},
+): Promise<Pagina<FirmInvitation>> {
+  return request<Pagina<FirmInvitation>>(
+    `/v1/firms/me/invitations?${buildInvitationSearch(params)}`,
+    { token },
+  );
+}
+
+export async function revokeFirmInvitation(
+  token: string,
+  invitationId: string,
+): Promise<FirmInvitation> {
+  return request<FirmInvitation>(
+    `/v1/firms/me/invitations/${encodeURIComponent(invitationId)}/revoke`,
+    { method: "POST", token },
+  );
+}
+
+export async function listMyInvitations(
+  token: string,
+  params: { page?: number; page_size?: number } = {},
+): Promise<Pagina<FirmInvitation>> {
+  const search = new URLSearchParams({
+    page: String(params.page ?? 1),
+    page_size: String(params.page_size ?? 20),
+  });
+  return request<Pagina<FirmInvitation>>(
+    `/v1/firms/invitations?${search.toString()}`,
+    { token },
+  );
+}
+
+export async function previewFirmInvitation(
+  token: string,
+  invitationToken: string,
+): Promise<FirmInvitation> {
+  return request<FirmInvitation>(
+    `/v1/firms/invitations/${encodeURIComponent(invitationToken)}`,
+    { token },
+  );
+}
+
+export async function acceptFirmInvitation(
+  token: string,
+  invitationToken: string,
+): Promise<FirmInvitation> {
+  return request<FirmInvitation>(
+    `/v1/firms/invitations/${encodeURIComponent(invitationToken)}/accept`,
+    { method: "POST", token },
+  );
+}
+
+export async function rejectFirmInvitation(
+  token: string,
+  invitationToken: string,
+): Promise<FirmInvitation> {
+  return request<FirmInvitation>(
+    `/v1/firms/invitations/${encodeURIComponent(invitationToken)}/reject`,
+    { method: "POST", token },
   );
 }

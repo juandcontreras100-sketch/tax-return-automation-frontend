@@ -45,7 +45,7 @@ type AuthSnapshot = {
 type AuthContextValue = AuthSnapshot & {
   login: (email: string, password: string) => Promise<User>;
   register: (payload: RegisterPayload) => Promise<User>;
-  logout: () => Promise<void>;
+  logout: (redirectTo?: string) => Promise<void>;
   refreshSession: () => Promise<boolean>;
 };
 
@@ -275,11 +275,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [login],
   );
 
-  const logout = useCallback(async (): Promise<void> => {
+  const logout = useCallback(async (redirectTo = "/login"): Promise<void> => {
     const refreshToken = snapshotRef.current.refreshToken;
 
     clearSession();
-    router.replace("/login");
+    router.replace(redirectTo);
 
     if (refreshToken) {
       try {

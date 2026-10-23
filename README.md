@@ -1,4 +1,4 @@
-# Taxfrom value — Frontend Fase 7/8
+# Taxfrom value — Frontend Fase 7/8/9
 
 Aplicación Next.js 16 (App Router, React 19, Tailwind 4) conectada a la API FastAPI del proyecto.
 
@@ -44,6 +44,8 @@ npm run build
 | `/declarations/[id]/processing` | Progreso WebSocket y polling de respaldo |
 | `/declarations/[id]` | Resultados, casillas y PDF autenticado |
 | `/accountant` | Cartera del contador/admin |
+| `/accountant/invitations` | Crear, listar y revocar invitaciones de la firma (solo admin) |
+| `/invitations/[token]` | Vista previa y aceptación/rechazo de una invitación |
 
 ## Auditoría de Fase 8
 
@@ -53,12 +55,17 @@ línea base (`audit-before-1`), los hallazgos y el plan P0/P1/P2 de Fase 9.
 
 Conclusión corta: el bootstrap compartido es de 160,6 KB comprimidos por ruta y
 el código propio es de 12,1–24,9 KB; no conviene fragmentar más las rutas. Las
-mejoras de mayor retorno son seguridad de sesión, UI de invitaciones, boundaries,
-E2E y eliminar la fuente `Geist_Mono` sin uso (23.108 bytes + 1.643 bytes de CSS).
+mejoras de mayor retorno son seguridad de sesión, boundaries, E2E y eliminar la
+fuente `Geist_Mono` sin uso (23.108 bytes + 1.643 bytes de CSS). La UI de
+invitaciones ya está entregada.
 
 ## Sesión
 
 Los tokens se guardan en `sessionStorage` y se validan con `GET /auth/me` al hidratar. El refresh se hace una sola vez por petición (single-flight). Para producción se recomienda migrar a cookies `httpOnly` con un BFF, porque `sessionStorage` es vulnerable a XSS. El WebSocket sigue enviando `?token=<JWT>`; la Fase 9 debe sustituirlo por un ticket corto o un subprotocolo.
+
+El login acepta un parámetro `next` validado como ruta interna. Se usa para
+volver a una invitación después de autenticarse sin permitir redirecciones
+abiertas; un `next` externo se descarta y cae en `/dashboard`.
 
 ## Demo local
 
@@ -76,7 +83,17 @@ No usar estas credenciales ni datos demo en producción.
 - El administrador no ve automáticamente las declaraciones de los clientes: RLS exige que un contador esté asignado. La interfaz lo explica.
 - La cartera carga hasta 100 clientes y consulta declaraciones de los primeros 30; si hay más, se muestra un aviso.
 - Las correcciones usan `PATCH /declarations/{id}/values/{field_code}`. Un valor sin documento de origen se guarda con `document_id: null` y conserva la auditoría.
-- **Invitaciones:** el backend ya implementa crear/listar/revocar, preview, aceptar y rechazar con consentimiento explícito. El frontend aún no consume esos endpoints; la UI es el P0 funcional de Fase 9.
+- **Invitaciones:** la UI está documentada en la sección siguiente. El endpoint heredado `POST /firms/me/members` sigue bloqueado con `501`.
+
+## Invitaciones
+
+- Solo el administrador ve el acceso **Gestionar invitaciones** en `/accountant`; `/accountant/invitations` revalida el rol y redirige a cualquier usuario que no sea admin.
+- La gestión permite crear, listar, filtrar por estado, paginar y revocar con confirmación en dos pasos. El token se muestra una sola vez al crear la invitación y no se puede recuperar desde el listado.
+- `/invitations/[token]` exige una sesión con el correo invitado. La aceptación requiere marcar un checkbox explícito; el rechazo pide confirmación en dos pasos.
+- Estados cubiertos: `404` si el correo autenticado no coincide, `409` si la invitación ya no está pendiente, `410` si expiró y `422` si el token no es válido.
+- El dashboard muestra un aviso informativo de invitaciones pendientes, sin token. La acción se realiza desde el enlace que compartió el administrador.
+- Validación local: crear/copiar/revocar, email incorrecto `404`, preview, rechazo, reapertura `409`, filtro de pendientes vacío y viewport `390×844` sin overflow en la gestión, el preview y el estado `409`.
+- La aceptación real no se ejecutó en vivo para no convertir la cuenta de prueba en cliente de la firma demo; el backend la cubre con pruebas de aceptación y auditoría. La cuenta `invitado.ui.20261022@example.com` quedó registrada y sin firma; sus invitaciones de prueba quedaron rechazadas o revocadas.
 
 ## Contenedor
 

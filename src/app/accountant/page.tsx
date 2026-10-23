@@ -476,9 +476,19 @@ export default function AccountantPage() {
                   : `Hola, ${user?.first_name}. Revisa los contribuyentes asignados a tu usuario y sus declaraciones recientes.`}
               </p>
             </div>
-            <span className="inline-flex shrink-0 items-center rounded-full bg-white/15 px-3 py-1 text-xs font-semibold text-white ring-1 ring-inset ring-white/25">
-              Rol: {isAdmin ? "Administrador" : "Contador"}
-            </span>
+            <div className="flex shrink-0 flex-col items-start gap-3 sm:items-end">
+              <span className="inline-flex items-center rounded-full bg-white/15 px-3 py-1 text-xs font-semibold text-white ring-1 ring-inset ring-white/25">
+                Rol: {isAdmin ? "Administrador" : "Contador"}
+              </span>
+              {isAdmin && (
+                <Link
+                  href="/accountant/invitations"
+                  className="inline-flex items-center justify-center rounded-lg bg-white px-4 py-2.5 text-sm font-semibold text-indigo-700 shadow-sm transition hover:bg-indigo-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-white/40"
+                >
+                  Gestionar invitaciones
+                </Link>
+              )}
+            </div>
           </div>
         </section>
 
