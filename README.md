@@ -1,4 +1,4 @@
-# Taxfrom value — Frontend Fase 7
+# Taxfrom value — Frontend Fase 7/8
 
 Aplicación Next.js 16 (App Router, React 19, Tailwind 4) conectada a la API FastAPI del proyecto.
 
@@ -45,9 +45,20 @@ npm run build
 | `/declarations/[id]` | Resultados, casillas y PDF autenticado |
 | `/accountant` | Cartera del contador/admin |
 
+## Auditoría de Fase 8
+
+La auditoría de bundle, Next.js MCP y Playwright está en
+[`docs/FRONTEND_AUDIT_PHASE8.md`](docs/FRONTEND_AUDIT_PHASE8.md). Resume la
+línea base (`audit-before-1`), los hallazgos y el plan P0/P1/P2 de Fase 9.
+
+Conclusión corta: el bootstrap compartido es de 160,6 KB comprimidos por ruta y
+el código propio es de 12,1–24,9 KB; no conviene fragmentar más las rutas. Las
+mejoras de mayor retorno son seguridad de sesión, UI de invitaciones, boundaries,
+E2E y eliminar la fuente `Geist_Mono` sin uso (23.108 bytes + 1.643 bytes de CSS).
+
 ## Sesión
 
-Los tokens se guardan en `sessionStorage` y se validan con `GET /auth/me` al hidratar. El refresh se hace una sola vez por petición (single-flight). Para producción se recomienda migrar a cookies `httpOnly` con un BFF, porque `sessionStorage` es vulnerable a XSS.
+Los tokens se guardan en `sessionStorage` y se validan con `GET /auth/me` al hidratar. El refresh se hace una sola vez por petición (single-flight). Para producción se recomienda migrar a cookies `httpOnly` con un BFF, porque `sessionStorage` es vulnerable a XSS. El WebSocket sigue enviando `?token=<JWT>`; la Fase 9 debe sustituirlo por un ticket corto o un subprotocolo.
 
 ## Demo local
 
@@ -65,6 +76,7 @@ No usar estas credenciales ni datos demo en producción.
 - El administrador no ve automáticamente las declaraciones de los clientes: RLS exige que un contador esté asignado. La interfaz lo explica.
 - La cartera carga hasta 100 clientes y consulta declaraciones de los primeros 30; si hay más, se muestra un aviso.
 - Las correcciones usan `PATCH /declarations/{id}/values/{field_code}`. Un valor sin documento de origen se guarda con `document_id: null` y conserva la auditoría.
+- **Invitaciones:** el backend ya implementa crear/listar/revocar, preview, aceptar y rechazar con consentimiento explícito. El frontend aún no consume esos endpoints; la UI es el P0 funcional de Fase 9.
 
 ## Contenedor
 
