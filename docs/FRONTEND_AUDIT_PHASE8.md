@@ -82,6 +82,7 @@ en español y navegación consistente.
   puede quedar en logs del proxy o herramientas de observabilidad.
 - El plan P0 es migrar a cookies `httpOnly`, `Secure`, `SameSite` con un BFF en
   Next.js y cambiar el WebSocket a ticket corto de un solo uso o subprotocolo.
+  **Resuelto en la sección 7 (2026-10-23).**
 
 ### 3.5 Invitaciones sin interfaz
 
@@ -153,9 +154,9 @@ red real se mide con el proxy de producción, no con `next analyze`.
 
 ## 6. Ejecución Fase 9 P0 — UI de invitaciones (2026-10-22)
 
-Estado: **entregada en código y validada localmente; el P0 de sesión/BFF sigue
-pendiente**. La aceptación real no se ejecutó en vivo para no alterar la firma
-demo.
+Estado: **entregada en código y validada localmente**. La aceptación real no se
+ejecutó en vivo para no alterar la firma demo. El P0 de sesión/BFF se cerró
+después, en la sección 7.
 
 ### Entregado
 - Tipos y cliente API para crear/listar/revocar invitaciones, listar las propias,
@@ -210,6 +211,68 @@ como *Partial Prerender*. CI frontend (`frontend-ci`, run `39895031701`) en
 - Datos de prueba: `invitado.ui.20261022@example.com` quedó registrado y sin
   firma; sus invitaciones de prueba quedaron rechazadas o revocadas. No se
   agregaron clientes a la firma demo.
-- El P0 de sesión sigue abierto: cookies `httpOnly` + BFF + CSRF, sin tokens en
-  `sessionStorage`. Después siguen el WebSocket sin JWT en query y los E2E
-  automatizados.
+- El P0 de sesión se cerró en la sección 7: cookies `httpOnly` + BFF + CSRF,
+  sin tokens en `sessionStorage`; el WebSocket usa ticket en subprotocolo.
+  Quedan los E2E automatizados y el store compartido para producción.
+
+## 7. Cierre Fase 9 — sesión/BFF y WebSocket (2026-10-23)
+
+Estado: **P0 de sesión/BFF+CSRF y P1 de WebSocket cerrados en código y
+validados localmente; producción sigue en no-go** por el store de sesiones en
+memoria y los bloqueos operativos de Fase 8.
+
+### Entregado
+- **BFF en Next.js:** `src/lib/server/session.ts` guarda los tokens de FastAPI
+  en un `Map` sobre `process` (no `globalThis`, porque Turbopack usa contextos
+  de módulo distintos por route handler). Cookies `taxfrom_session` (`HttpOnly`)
+  y `taxfrom_csrf` (legible), `SameSite=Lax` y `Secure` cuando la petición llega
+  por HTTPS.
+- **Rutas:** `POST /api/v1/auth/login`, `POST /api/v1/auth/register`,
+  `POST /api/v1/auth/logout` y el proxy autenticado
+  `/api/v1/[...path]`. El login devuelve `User`, no tokens.
+- **Refresh single-flight:** un `401` del backend dispara un único
+  `/auth/refresh` por sesión, actualiza los tokens y reintenta la petición. Un
+  refresh inválido borra la sesión y devuelve `401`.
+- **CSRF double-submit:** las mutaciones exigen mismo origen y `X-CSRF-Token`;
+  login/register solo exigen mismo origen; logout solo mismo origen. El token
+  CSRF debe coincidir con el de la sesión.
+- **Cliente sin tokens:** `api.ts` usa `/api`, `credentials: "same-origin"` y
+  añade el header CSRF; `auth.tsx` solo mantiene `user` y `ready`. No quedan
+  access/refresh tokens en `sessionStorage` ni `localStorage`.
+- **WebSocket:** `useJobSocket` pide un ticket nuevo en cada conexión a
+  `POST /api/v1/ws/jobs/{job_id}/ticket` y abre el socket con
+  `["taxfrom.job.v1", ticket]`. El backend valida firma separada, `job_id`,
+  expiración y dueño; ya no acepta JWT en la query.
+
+### Validación local
+- PowerShell/HTTP: login `200` con `User`; cookie de sesión `HttpOnly` y CSRF
+  legible; `/me` y `/declarations` `200`; CSRF ausente, incorrecto y
+  cross-origin `403`; CSRF válido llega al backend (`404` de job inexistente);
+  login inválido `401` sin cookies; logout `204`, borra cookies y `/me` pasa a
+  `401`.
+- Refresh: con `ACCESS_TOKEN_EXPIRE_MINUTES=1`, `/me` devolvió `401`, el BFF
+  llamó a `/auth/refresh` (`200`) y el reintento de `/me` devolvió `200`.
+- Playwright: `document.cookie` solo muestra `taxfrom_csrf`;
+  `sessionStorage` y `localStorage` vacíos; dashboard, detalle, PDF, wizard,
+  `/accountant` e invitaciones cargan por el BFF.
+- Multipart: `POST /api/v1/declarations` a través del BFF devolvió `202` con
+  `job_id`; el ticket devolvió `200`; el handshake con subprotocolo recibió
+  `snapshot`. Se validó con Python y con el navegador.
+- Backend en vivo: un handshake con `?token=<JWT>` cerró con `4401`; el ticket
+  por subprotocolo devolvió `200` y el `snapshot` esperado. La suite backend
+  completa quedó en **471 passed / 0 failed**.
+- `npx next typegen`, `npm run lint`, `npx tsc --noEmit --incremental false` y
+  `npm run build` verdes. Con `cacheComponents`, Next rechaza
+  `export const runtime`/`dynamic` en route handlers; se eliminaron.
+- Smoke de producción: `node .next/standalone/server.js` en `:3002` con
+  `API_INTERNAL_URL=http://127.0.0.1:8080/api`; `/login`, login BFF, `/me` y
+  `/declarations` respondieron `200`, con cookie de sesión `HttpOnly`.
+
+### Límites y siguiente paso
+- **Store en memoria:** válido para una instancia y para desarrollo; se pierde
+  al reiniciar y no se comparte entre réplicas. Producción exige Redis o un
+  store compartido con la misma semántica de refresh single-flight.
+- **Aceptación live de invitaciones:** sigue sin ejecutarse para conservar la
+  firma demo; el backend cubre aceptación, transferencia y auditoría.
+- **E2E automatizados:** los flujos manuales aún no están en Playwright/CI.
+- **Boundaries, accesibilidad y bundle:** siguen en el P1 de la sección 4.

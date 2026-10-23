@@ -30,6 +30,11 @@ export interface TokenResponse {
   last_name: string;
 }
 
+export interface JobTicket {
+  ticket: string;
+  expires_in: number;
+}
+
 export interface RegisterPayload {
   email: string;
   password: string;

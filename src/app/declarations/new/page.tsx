@@ -5,15 +5,15 @@ import DeclarationWizard from "@/components/wizard/DeclarationWizard";
 import { useRequireAuth } from "@/lib/auth";
 
 export default function NewDeclarationPage() {
-  const { user, accessToken, ready, authorized } = useRequireAuth();
+  const { user, ready, authorized } = useRequireAuth();
 
-  if (!ready || !authorized || !user || !accessToken) {
+  if (!ready || !authorized || !user) {
     return <AuthLoading />;
   }
 
   return (
     <AppShell>
-      <DeclarationWizard user={user} accessToken={accessToken} />
+      <DeclarationWizard user={user} />
     </AppShell>
   );
 }

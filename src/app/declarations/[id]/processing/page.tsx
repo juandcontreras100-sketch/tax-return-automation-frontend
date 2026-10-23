@@ -31,7 +31,7 @@ import {
   type JobSocketConnection,
   type JobSocketConnectionStatus,
 } from "@/hooks/useJobSocket";
-import { errorMessage, getDeclaration } from "@/lib/api";
+import { createJobTicket, errorMessage, getDeclaration } from "@/lib/api";
 import { useRequireAuth } from "@/lib/auth";
 
 const SOCKET_SILENCE_BEFORE_POLLING_MS = 4_000;
@@ -277,7 +277,7 @@ function ProcessingRoute() {
 
 function ProcessingScreen({ declarationId }: { declarationId: string }) {
   const router = useRouter();
-  const { accessToken, authorized, ready } = useRequireAuth();
+  const { authorized, ready } = useRequireAuth();
   const [state, dispatch] = useReducer(
     processingReducer,
     undefined,
@@ -315,9 +315,17 @@ function ProcessingScreen({ declarationId }: { declarationId: string }) {
     authorized &&
     (state.jobStatus === "queued" || state.jobStatus === "processing");
 
+  const getJobTicket = useCallback(async (): Promise<string> => {
+    if (!jobId) {
+      throw new Error("El trabajo aún no está listo.");
+    }
+    const result = await createJobTicket(jobId);
+    return result.ticket;
+  }, [jobId]);
+
   const connection = useJobSocket({
     jobId,
-    token: accessToken,
+    getTicket: getJobTicket,
     isProcessing,
     dispatch,
   });
@@ -361,14 +369,13 @@ function ProcessingScreen({ declarationId }: { declarationId: string }) {
   // Respaldo cuando el WebSocket falla o deja de enviar eventos: consulta el
   // detalle de la declaración y navega en cuanto deja el estado inicial.
   useEffect(() => {
-    if (!ready || !authorized || !accessToken || !jobId || !declarationId) {
+    if (!ready || !authorized || !jobId || !declarationId) {
       return;
     }
     if (state.jobStatus === "completed" || state.jobStatus === "failed") {
       return;
     }
 
-    const token = accessToken;
     const currentDeclarationId = declarationId;
     let cancelled = false;
     let started = false;
@@ -398,7 +405,7 @@ function ProcessingScreen({ declarationId }: { declarationId: string }) {
 
       inFlight = true;
       try {
-        const declaration = await getDeclaration(token, currentDeclarationId);
+        const declaration = await getDeclaration(currentDeclarationId);
         if (cancelled) {
           return;
         }
@@ -489,7 +496,6 @@ function ProcessingScreen({ declarationId }: { declarationId: string }) {
       }
     };
   }, [
-    accessToken,
     authorized,
     connection.lastMessageAt,
     connection.status,

@@ -5,14 +5,12 @@ import { errorMessage, updateDeclarationValue } from "@/lib/api";
 import type { FormValue } from "@/lib/types";
 
 type Props = {
-  token: string;
   declarationId: string;
   values: FormValue[];
   onSaved: () => void;
 };
 
 export default function CorrectionsPanel({
-  token,
   declarationId,
   values,
   onSaved,
@@ -36,7 +34,6 @@ export default function CorrectionsPanel({
 
     try {
       await updateDeclarationValue(
-        token,
         declarationId,
         value.field_code,
         draft.trim(),

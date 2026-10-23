@@ -57,7 +57,7 @@ function PageButton({
   );
 }
 
-export default function InvitationManager({ token }: { token: string }) {
+export default function InvitationManager() {
   const [invitations, setInvitations] = useState<Pagina<FirmInvitation> | null>(
     null,
   );
@@ -86,7 +86,6 @@ export default function InvitationManager({ token }: { token: string }) {
 
   useEffect(() => {
     let cancelled = false;
-    const authToken = token;
 
     async function loadInvitations() {
       // Microtask: evita actualizar estado de forma síncrona dentro del efecto.
@@ -99,7 +98,7 @@ export default function InvitationManager({ token }: { token: string }) {
       setListError(null);
 
       try {
-        const result = await listFirmInvitations(authToken, {
+        const result = await listFirmInvitations({
           page,
           page_size: PAGE_SIZE,
           status: statusFilter || undefined,
@@ -123,7 +122,7 @@ export default function InvitationManager({ token }: { token: string }) {
     return () => {
       cancelled = true;
     };
-  }, [page, reloadKey, statusFilter, token]);
+  }, [page, reloadKey, statusFilter]);
 
   async function handleCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -142,7 +141,7 @@ export default function InvitationManager({ token }: { token: string }) {
     setActionError(null);
 
     try {
-      const result = await createFirmInvitation(token, {
+      const result = await createFirmInvitation({
         email: normalizedEmail,
         role,
       });
@@ -191,7 +190,7 @@ export default function InvitationManager({ token }: { token: string }) {
     setActionError(null);
 
     try {
-      await revokeFirmInvitation(token, invitationId);
+      await revokeFirmInvitation(invitationId);
       setConfirmingRevokeId(null);
       if (created?.id === invitationId) {
         clearCreated();

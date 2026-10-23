@@ -32,7 +32,6 @@ import {
 
 type DeclarationWizardProps = {
   user: User;
-  accessToken: string;
 };
 
 function isSameFile(a: File, b: File): boolean {
@@ -45,7 +44,6 @@ function isSameFile(a: File, b: File): boolean {
 
 export default function DeclarationWizard({
   user,
-  accessToken,
 }: DeclarationWizardProps) {
   const router = useRouter();
   const [step, setStep] = useState<WizardStep>(1);
@@ -280,7 +278,7 @@ export default function DeclarationWizard({
     }
 
     try {
-      const result = await createDeclaration(accessToken, formData);
+      const result = await createDeclaration(formData);
       const jobKey = `taxfrom.job.${result.declaration_id}`;
 
       try {

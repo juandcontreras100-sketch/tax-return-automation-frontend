@@ -6,38 +6,20 @@ import {
   useContext,
   useEffect,
   useMemo,
-  useRef,
   useState,
   type ReactNode,
 } from "react";
 import { useRouter } from "next/navigation";
 import {
-  ApiError,
   login as apiLogin,
   logout as apiLogout,
   me as apiMe,
-  refresh as apiRefresh,
   register as apiRegister,
-  setSessionAdapter,
+  setSessionExpiredHandler,
 } from "./api";
-import type {
-  RegisterPayload,
-  TokenResponse,
-  User,
-  UserRole,
-} from "./types";
-
-const STORAGE_KEY = "taxfrom.session.v1";
-
-type StoredSession = {
-  accessToken: string;
-  refreshToken: string;
-  user: User | null;
-};
+import type { RegisterPayload, User, UserRole } from "./types";
 
 type AuthSnapshot = {
-  accessToken: string | null;
-  refreshToken: string | null;
   user: User | null;
   ready: boolean;
 };
@@ -67,168 +49,53 @@ function isUser(value: unknown): value is User {
   );
 }
 
-function readStoredSession(): StoredSession | null {
-  if (typeof window === "undefined") {
-    return null;
-  }
-  try {
-    const raw = window.sessionStorage.getItem(STORAGE_KEY);
-    if (!raw) {
-      return null;
-    }
-    const parsed = JSON.parse(raw) as Partial<StoredSession> | null;
-    if (
-      !parsed ||
-      typeof parsed.accessToken !== "string" ||
-      typeof parsed.refreshToken !== "string"
-    ) {
-      return null;
-    }
-    return {
-      accessToken: parsed.accessToken,
-      refreshToken: parsed.refreshToken,
-      user: isUser(parsed.user) ? parsed.user : null,
-    };
-  } catch {
-    return null;
-  }
-}
-
-function writeStoredSession(snapshot: StoredSession): void {
-  try {
-    window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
-  } catch {
-    // sessionStorage puede estar bloqueado (modo privado); la sesión sigue en memoria.
-  }
-}
-
-function removeStoredSession(): void {
-  try {
-    window.sessionStorage.removeItem(STORAGE_KEY);
-  } catch {
-    // Sin almacenamiento disponible no hay nada que limpiar.
-  }
-}
-
 export function AuthProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
   const [snapshot, setSnapshot] = useState<AuthSnapshot>({
-    accessToken: null,
-    refreshToken: null,
     user: null,
     ready: false,
   });
-  const snapshotRef = useRef<AuthSnapshot>(snapshot);
 
   const commit = useCallback((next: AuthSnapshot) => {
-    snapshotRef.current = next;
     setSnapshot(next);
-
-    if (next.accessToken && next.refreshToken) {
-      writeStoredSession({
-        accessToken: next.accessToken,
-        refreshToken: next.refreshToken,
-        user: next.user,
-      });
-    } else {
-      removeStoredSession();
-    }
   }, []);
 
   const clearSession = useCallback(() => {
-    commit({
-      accessToken: null,
-      refreshToken: null,
-      user: null,
-      ready: true,
-    });
+    commit({ user: null, ready: true });
   }, [commit]);
 
-  const applyTokens = useCallback(
-    (tokens: TokenResponse) => {
-      const current = snapshotRef.current;
-      const user = current.user
-        ? {
-            ...current.user,
-            email: tokens.email,
-            first_name: tokens.first_name,
-            last_name: tokens.last_name,
-          }
-        : null;
-
-      commit({
-        ...current,
-        accessToken: tokens.access_token,
-        refreshToken: tokens.refresh_token,
-        user,
-      });
-    },
-    [commit],
-  );
-
+  // El BFF responde 401 cuando la sesión ya no existe. El cliente HTTP avisa
+  // aquí para que la UI vuelva al login sin exponer tokens ni refresh tokens.
   useEffect(() => {
-    setSessionAdapter({
-      getRefreshToken: () => snapshotRef.current.refreshToken,
-      onTokensRefreshed: applyTokens,
-      onSessionExpired: clearSession,
-    });
-
-    return () => setSessionAdapter(null);
-  }, [applyTokens, clearSession]);
+    setSessionExpiredHandler(clearSession);
+    return () => setSessionExpiredHandler(null);
+  }, [clearSession]);
 
   useEffect(() => {
     let cancelled = false;
 
     async function hydrate() {
       // Se difiere un microtask para no encadenar renders síncronos desde el
-      // efecto; la sesión vive en sessionStorage (sistema externo a React).
+      // efecto; la cookie de sesión es un sistema externo a React.
       await Promise.resolve();
       if (cancelled) {
         return;
       }
 
-      const stored = readStoredSession();
-
-      if (!stored) {
-        commit({
-          accessToken: null,
-          refreshToken: null,
-          user: null,
-          ready: true,
-        });
-        return;
-      }
-
-      // Los tokens deben quedar disponibles antes de validar la sesión para que
-      // el cliente HTTP pueda refrescar un access token vencido.
-      commit({
-        accessToken: stored.accessToken,
-        refreshToken: stored.refreshToken,
-        user: stored.user,
-        ready: false,
-      });
-
       try {
-        const user = await apiMe(stored.accessToken);
+        const user = await apiMe();
         if (cancelled) {
           return;
         }
-        const current = snapshotRef.current;
-        commit({
-          ...current,
-          user,
-          ready: true,
-        });
-      } catch (error: unknown) {
-        if (cancelled) {
-          return;
-        }
-        if (error instanceof ApiError && error.status === 401) {
+        if (isUser(user)) {
+          commit({ user, ready: true });
+        } else {
           clearSession();
-          return;
         }
-        // Un fallo de red no debe borrar una sesión válida almacenada.
-        commit({ ...snapshotRef.current, ready: true });
+      } catch {
+        if (!cancelled) {
+          clearSession();
+        }
       }
     }
 
@@ -241,28 +108,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(
     async (email: string, password: string): Promise<User> => {
-      const tokens = await apiLogin(email.trim(), password);
-
-      commit({
-        accessToken: tokens.access_token,
-        refreshToken: tokens.refresh_token,
-        user: null,
-        ready: false,
-      });
-
-      try {
-        const user = await apiMe(tokens.access_token);
-        const current = snapshotRef.current;
-        commit({
-          ...current,
-          user,
-          ready: true,
-        });
-        return user;
-      } catch (error) {
+      const user = await apiLogin(email.trim(), password);
+      if (!isUser(user)) {
         clearSession();
-        throw error;
+        throw new Error("El servidor devolvió un usuario no válido.");
       }
+      commit({ user, ready: true });
+      return user;
     },
     [clearSession, commit],
   );
@@ -275,40 +127,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [login],
   );
 
-  const logout = useCallback(async (redirectTo = "/login"): Promise<void> => {
-    const refreshToken = snapshotRef.current.refreshToken;
-
-    clearSession();
-    router.replace(redirectTo);
-
-    if (refreshToken) {
+  const logout = useCallback(
+    async (redirectTo = "/login"): Promise<void> => {
       try {
-        await apiLogout(refreshToken);
+        await apiLogout();
       } catch {
-        // La sesión local ya se cerró; revocar en el servidor es best-effort.
+        // Si el BFF no responde, igual limpiamos el estado local y navegamos.
       }
-    }
-  }, [clearSession, router]);
+      clearSession();
+      router.replace(redirectTo);
+    },
+    [clearSession, router],
+  );
 
   const refreshSession = useCallback(async (): Promise<boolean> => {
-    const refreshToken = snapshotRef.current.refreshToken;
-    if (!refreshToken) {
-      clearSession();
-      return false;
-    }
-
     try {
-      const tokens = await apiRefresh(refreshToken);
-      applyTokens(tokens);
-      const user = await apiMe(tokens.access_token);
-      const current = snapshotRef.current;
-      commit({ ...current, user, ready: true });
+      const user = await apiMe();
+      if (!isUser(user)) {
+        clearSession();
+        return false;
+      }
+      commit({ user, ready: true });
       return true;
     } catch {
       clearSession();
       return false;
     }
-  }, [applyTokens, clearSession, commit]);
+  }, [clearSession, commit]);
 
   const value = useMemo<AuthContextValue>(
     () => ({
@@ -334,7 +179,7 @@ export function useAuth(): AuthContextValue {
 
 /**
  * Protege una página cliente. Mientras `ready` es false no redirige, para no
- * expulsar al usuario antes de recuperar la sesión de sessionStorage.
+ * expulsar al usuario antes de que el BFF recupere la sesión desde su cookie.
  */
 export function useRequireAuth(options?: { roles?: UserRole[] }) {
   const auth = useAuth();

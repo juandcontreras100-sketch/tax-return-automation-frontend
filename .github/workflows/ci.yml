@@ -16,7 +16,7 @@ jobs:
 
     env:
       NEXT_TELEMETRY_DISABLED: "1"
-      NEXT_PUBLIC_API_URL: http://127.0.0.1:8080/api
+      API_INTERNAL_URL: http://127.0.0.1:8080/api
       NEXT_PUBLIC_WS_URL: ws://127.0.0.1:8080/api/v1/ws
 
     steps:

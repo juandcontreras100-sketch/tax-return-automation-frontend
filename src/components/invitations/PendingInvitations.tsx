@@ -13,13 +13,12 @@ import type { FirmInvitation } from "@/lib/types";
  * del listado por seguridad, así que la acción se realiza desde el enlace que
  * el administrador compartió.
  */
-export default function PendingInvitations({ token }: { token: string }) {
+export default function PendingInvitations() {
   const [items, setItems] = useState<FirmInvitation[]>([]);
   const [total, setTotal] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
-    const authToken = token;
 
     async function loadInvitations() {
       await Promise.resolve();
@@ -28,7 +27,7 @@ export default function PendingInvitations({ token }: { token: string }) {
       }
 
       try {
-        const result = await listMyInvitations(authToken, {
+        const result = await listMyInvitations({
           page: 1,
           page_size: 5,
         });
@@ -46,7 +45,7 @@ export default function PendingInvitations({ token }: { token: string }) {
     return () => {
       cancelled = true;
     };
-  }, [token]);
+  }, []);
 
   if (items.length === 0) {
     return null;

@@ -9,9 +9,13 @@ Aplicación Next.js 16 (App Router, React 19, Tailwind 4) conectada a la API Fas
 - Variables en `.env.local` (copia `.env.local.example`)
 
 ```dotenv
-NEXT_PUBLIC_API_URL=http://127.0.0.1:8080/api
+API_INTERNAL_URL=http://127.0.0.1:8080/api
 NEXT_PUBLIC_WS_URL=ws://127.0.0.1:8080/api/v1/ws
 ```
+
+`API_INTERNAL_URL` es **solo del servidor**: el navegador nunca llama al
+backend directamente. `NEXT_PUBLIC_WS_URL` sí llega al cliente porque el
+WebSocket se abre contra FastAPI con un ticket efímero.
 
 ## Desarrollo
 
@@ -59,9 +63,36 @@ mejoras de mayor retorno son seguridad de sesión, boundaries, E2E y eliminar la
 fuente `Geist_Mono` sin uso (23.108 bytes + 1.643 bytes de CSS). La UI de
 invitaciones ya está entregada.
 
-## Sesión
+## Sesión y BFF
 
-Los tokens se guardan en `sessionStorage` y se validan con `GET /auth/me` al hidratar. El refresh se hace una sola vez por petición (single-flight). Para producción se recomienda migrar a cookies `httpOnly` con un BFF, porque `sessionStorage` es vulnerable a XSS. El WebSocket sigue enviando `?token=<JWT>`; la Fase 9 debe sustituirlo por un ticket corto o un subprotocolo.
+El navegador solo conoce dos cookies:
+
+- `taxfrom_session`: identificador opaco de sesión, `HttpOnly`, `SameSite=Lax`
+  y `Secure` cuando la petición llega por HTTPS.
+- `taxfrom_csrf`: token legible por JavaScript para el patrón double-submit.
+
+Detrás de un proxy TLS, el proxy debe enviar `X-Forwarded-Proto: https`; el BFF
+usa ese header para marcar las cookies como `Secure`.
+
+Los access/refresh tokens de FastAPI viven en un store del servidor Next.js y
+nunca se envían al navegador. El cliente llama a `/api/v1/*`; el BFF añade el
+`Authorization`, renueva la sesión una sola vez por sesión cuando el backend
+responde `401` y reintenta la petición. Las mutaciones exigen mismo origen y el
+header `X-CSRF-Token`; login y registro solo exigen mismo origen.
+
+Rutas del BFF:
+
+| Ruta | Uso |
+|---|---|
+| `POST /api/v1/auth/login` | Valida credenciales, crea la sesión y devuelve el `User` |
+| `POST /api/v1/auth/register` | Proxy público de registro |
+| `POST /api/v1/auth/logout` | Revoca best-effort y borra las cookies |
+| `/api/v1/*` | Proxy autenticado, con refresh y CSRF |
+
+El store es un `Map` en memoria del proceso. Sirve para desarrollo y para una
+sola instancia; al reiniciar Next se pierden las sesiones. Para producción se
+necesita Redis o un store compartido, además de TLS y cookies `Secure`. No se
+debe ejecutar más de una réplica con este store en memoria.
 
 El login acepta un parámetro `next` validado como ruta interna. Se usa para
 volver a una invitación después de autenticarse sin permitir redirecciones
@@ -97,22 +128,27 @@ No usar estas credenciales ni datos demo en producción.
 
 ## Contenedor
 
-El `Dockerfile` usa salida `standalone` y requiere que las URLs públicas se
-inyecten en tiempo de build:
+El `Dockerfile` usa salida `standalone`. `NEXT_PUBLIC_WS_URL` se inyecta en
+tiempo de build porque lo usa el cliente; `API_INTERNAL_URL` se configura en
+runtime:
 
 ```powershell
 docker build -t tax-return-frontend:latest `
-  --build-arg NEXT_PUBLIC_API_URL=https://api.example.com/api `
   --build-arg NEXT_PUBLIC_WS_URL=wss://api.example.com/api/v1/ws .
-docker run --rm -p 3001:3001 tax-return-frontend:latest
+docker run --rm -p 3001:3001 `
+  -e API_INTERNAL_URL=http://<backend-host>:8080/api `
+  tax-return-frontend:latest
 ```
+
+En el compose de producción, `API_INTERNAL_URL` apunta a
+`http://backend:8080/api` dentro de la red de Compose.
 
 El stack completo y los secretos se documentan en
 `../tax-return-backend/docs/DEPLOYMENT.md`.
 
 ## Notas
 
-- El PDF se descarga con `fetch` + `Authorization`; un `<a href>` directo devuelve 401.
-- El WebSocket real es `/api/v1/ws/jobs/{job_id}?token=<JWT>`. El backend valida el token y que el trabajo pertenezca al usuario; sin token responde cierre 4401 y con otro dueño 4403.
+- El PDF se descarga con `fetch` a través del BFF; el `Authorization` lo añade el servidor.
+- El WebSocket real es `/api/v1/ws/jobs/{job_id}`. El cliente pide un ticket de 60 s a `POST /api/v1/ws/jobs/{job_id}/ticket` y lo envía como subprotocolo `taxfrom.job.v1`, no en la URL. El backend valida firma, `job_id`, expiración y dueño; sin ticket válido cierra con 4401 y con otro dueño con 4403.
 - Los errores 422 de FastAPI se normalizan a texto legible en `src/lib/api.ts`.
 - El Formulario 210 se presenta en el portal DIAN con IFE; el adaptador `.pfx`/XAdES del backend no es un canal oficial del F210. Ver `../tax-return-backend/docs/DIAN_F210_VALIDACION.md`.

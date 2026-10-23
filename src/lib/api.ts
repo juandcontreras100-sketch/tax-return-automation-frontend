@@ -12,43 +12,36 @@ import {
   type FirmInvitationListParams,
   type FirmInvitationRole,
   type FirmMember,
+  type JobTicket,
   type Pagina,
   type RegisterPayload,
-  type TokenResponse,
   type User,
 } from "./types";
 
 export { ApiError } from "./types";
 
-const DEFAULT_API_URL = "http://127.0.0.1:8080/api";
-
-export const API_URL = (
-  process.env.NEXT_PUBLIC_API_URL ?? DEFAULT_API_URL
-).replace(/\/+$/, "");
-
-type SessionAdapter = {
-  getRefreshToken: () => string | null;
-  onTokensRefreshed: (tokens: TokenResponse) => void;
-  onSessionExpired: () => void;
-};
-
-let sessionAdapter: SessionAdapter | null = null;
-
 /**
- * Conecta el cliente HTTP con la sesión del AuthProvider. Así cualquier
- * petición autenticada puede refrescar el token una sola vez y reintentarse.
+ * El navegador solo habla con el BFF de Next.js. Las cookies de sesión son
+ * httpOnly; el access token y el refresh token nunca llegan al cliente.
  */
-export function setSessionAdapter(adapter: SessionAdapter | null): void {
-  sessionAdapter = adapter;
+export const API_URL = "/api";
+
+type SessionExpiredHandler = () => void;
+
+let sessionExpiredHandler: SessionExpiredHandler | null = null;
+
+export function setSessionExpiredHandler(
+  handler: SessionExpiredHandler | null,
+): void {
+  sessionExpiredHandler = handler;
 }
 
 type RequestOptions = {
   method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
-  token?: string | null;
   json?: unknown;
   body?: BodyInit | null;
   headers?: HeadersInit;
-  retryOnUnauthorized?: boolean;
+  handleUnauthorized?: boolean;
 };
 
 type ValidationItem = {
@@ -176,10 +169,21 @@ async function toApiError(response: Response): Promise<ApiError> {
   return new ApiError(response.status, detail, payload);
 }
 
-function buildFetchInit(
-  options: RequestOptions,
-  token: string | null,
-): RequestInit {
+function readCsrfToken(): string | null {
+  if (typeof document === "undefined") {
+    return null;
+  }
+  for (const part of document.cookie.split(";")) {
+    const entry = part.trim();
+    if (entry.startsWith("taxfrom_csrf=")) {
+      return decodeURIComponent(entry.slice("taxfrom_csrf=".length));
+    }
+  }
+  return null;
+}
+
+function buildFetchInit(options: RequestOptions): RequestInit {
+  const method = options.method ?? "GET";
   const headers = new Headers(options.headers);
 
   if (options.json !== undefined) {
@@ -188,93 +192,41 @@ function buildFetchInit(
   if (!headers.has("Accept")) {
     headers.set("Accept", "application/json");
   }
-  if (token) {
-    headers.set("Authorization", `Bearer ${token}`);
+  if (method !== "GET") {
+    const csrf = readCsrfToken();
+    if (csrf) {
+      headers.set("X-CSRF-Token", csrf);
+    }
   }
 
   return {
-    method: options.method ?? "GET",
+    method,
     headers,
     body:
       options.json !== undefined
         ? JSON.stringify(options.json)
         : options.body,
     cache: "no-store",
+    credentials: "same-origin",
   };
 }
 
 async function performFetch(
   path: string,
   options: RequestOptions,
-  token: string | null,
 ): Promise<Response> {
-  return fetch(`${API_URL}${path}`, buildFetchInit(options, token));
-}
-
-let refreshInFlight: Promise<TokenResponse> | null = null;
-
-async function refreshAccessToken(): Promise<TokenResponse | null> {
-  const adapter = sessionAdapter;
-  const refreshToken = adapter?.getRefreshToken() ?? null;
-
-  if (!adapter || !refreshToken) {
-    adapter?.onSessionExpired();
-    return null;
-  }
-
-  if (!refreshInFlight) {
-    refreshInFlight = refresh(refreshToken)
-      .then((tokens) => {
-        adapter.onTokensRefreshed(tokens);
-        return tokens;
-      })
-      .catch(() => {
-        adapter.onSessionExpired();
-        throw new Error("La sesión expiró. Inicia sesión de nuevo.");
-      })
-      .finally(() => {
-        refreshInFlight = null;
-      });
-  }
-
-  try {
-    return await refreshInFlight;
-  } catch {
-    return null;
-  }
-}
-
-async function fetchWithSession(
-  path: string,
-  options: RequestOptions,
-): Promise<Response> {
-  const token = options.token ?? null;
-  let response = await performFetch(path, options, token);
-
-  if (
-    response.status === 401 &&
-    token &&
-    options.retryOnUnauthorized !== false
-  ) {
-    const refreshed = await refreshAccessToken();
-
-    if (refreshed) {
-      response = await performFetch(path, options, refreshed.access_token);
-
-      if (response.status === 401) {
-        sessionAdapter?.onSessionExpired();
-      }
-    }
-  }
-
-  return response;
+  return fetch(`${API_URL}${path}`, buildFetchInit(options));
 }
 
 async function request<T>(
   path: string,
   options: RequestOptions = {},
 ): Promise<T> {
-  const response = await fetchWithSession(path, options);
+  const response = await performFetch(path, options);
+
+  if (response.status === 401 && options.handleUnauthorized !== false) {
+    sessionExpiredHandler?.();
+  }
 
   if (!response.ok) {
     throw await toApiError(response);
@@ -303,10 +255,11 @@ export function errorMessage(error: unknown): string {
 export async function login(
   email: string,
   password: string,
-): Promise<TokenResponse> {
-  return request<TokenResponse>("/v1/auth/login", {
+): Promise<User> {
+  return request<User>("/v1/auth/login", {
     method: "POST",
     json: { email, password },
+    handleUnauthorized: false,
   });
 }
 
@@ -314,31 +267,22 @@ export async function register(payload: RegisterPayload): Promise<User> {
   return request<User>("/v1/auth/register", {
     method: "POST",
     json: payload,
+    handleUnauthorized: false,
   });
 }
 
-export async function me(token: string): Promise<User> {
-  return request<User>("/v1/auth/me", { token });
+export async function me(): Promise<User> {
+  return request<User>("/v1/auth/me");
 }
 
-export async function refresh(refreshToken: string): Promise<TokenResponse> {
-  return request<TokenResponse>("/v1/auth/refresh", {
-    method: "POST",
-    json: { refresh_token: refreshToken },
-    retryOnUnauthorized: false,
-  });
-}
-
-export async function logout(refreshToken: string): Promise<void> {
+export async function logout(): Promise<void> {
   return request<void>("/v1/auth/logout", {
     method: "POST",
-    json: { refresh_token: refreshToken },
-    retryOnUnauthorized: false,
+    handleUnauthorized: false,
   });
 }
 
 export async function listDeclarations(
-  token: string,
   params: DeclarationListParams = {},
 ): Promise<Pagina<DeclarationListItem>> {
   const search = new URLSearchParams();
@@ -357,30 +301,26 @@ export async function listDeclarations(
 
   return request<Pagina<DeclarationListItem>>(
     `/v1/declarations?${search.toString()}`,
-    { token },
   );
 }
 
 export async function getDeclaration(
-  token: string,
   id: string,
 ): Promise<DeclarationDetail> {
   return request<DeclarationDetail>(
     `/v1/declarations/${encodeURIComponent(id)}`,
-    { token },
   );
 }
 
-export async function downloadDeclarationPdf(
-  token: string,
-  id: string,
-): Promise<Blob> {
+export async function downloadDeclarationPdf(id: string): Promise<Blob> {
   const path = `/v1/declarations/${encodeURIComponent(id)}/pdf`;
-  const response = await fetchWithSession(path, {
-    token,
+  const response = await performFetch(path, {
     headers: { Accept: "application/pdf" },
   });
 
+  if (response.status === 401) {
+    sessionExpiredHandler?.();
+  }
   if (!response.ok) {
     throw await toApiError(response);
   }
@@ -389,18 +329,15 @@ export async function downloadDeclarationPdf(
 }
 
 export async function createDeclaration(
-  token: string,
   formData: FormData,
 ): Promise<CreateDeclarationResult> {
   return request<CreateDeclarationResult>("/v1/declarations", {
     method: "POST",
-    token,
     body: formData,
   });
 }
 
 export async function updateDeclarationValue(
-  token: string,
   declarationId: string,
   fieldCode: string,
   correctedValue: string,
@@ -417,24 +354,20 @@ export async function updateDeclarationValue(
     `/v1/declarations/${encodeURIComponent(declarationId)}/values/${encodeURIComponent(fieldCode)}`,
     {
       method: "PATCH",
-      token,
       json: payload,
     },
   );
 }
 
-export async function getDianCapabilities(
-  token: string,
-): Promise<DianCapabilities> {
-  return request<DianCapabilities>("/v1/dian/capabilities", { token });
+export async function getDianCapabilities(): Promise<DianCapabilities> {
+  return request<DianCapabilities>("/v1/dian/capabilities");
 }
 
-export async function getMyFirm(token: string): Promise<Firm> {
-  return request<Firm>("/v1/firms/me", { token });
+export async function getMyFirm(): Promise<Firm> {
+  return request<Firm>("/v1/firms/me");
 }
 
 export async function listFirmMembers(
-  token: string,
   params: { page?: number; page_size?: number } = {},
 ): Promise<Pagina<FirmMember>> {
   const search = new URLSearchParams({
@@ -443,12 +376,10 @@ export async function listFirmMembers(
   });
   return request<Pagina<FirmMember>>(
     `/v1/firms/me/members?${search.toString()}`,
-    { token },
   );
 }
 
 export async function listFirmClients(
-  token: string,
   params: { page?: number; page_size?: number } = {},
 ): Promise<Pagina<FirmMember>> {
   const search = new URLSearchParams({
@@ -457,12 +388,10 @@ export async function listFirmClients(
   });
   return request<Pagina<FirmMember>>(
     `/v1/firms/me/clients?${search.toString()}`,
-    { token },
   );
 }
 
 export async function assignClientAccountant(
-  token: string,
   clientId: string,
   accountantId: string | null,
 ): Promise<FirmMember> {
@@ -470,7 +399,6 @@ export async function assignClientAccountant(
     `/v1/firms/me/clients/${encodeURIComponent(clientId)}/accountant`,
     {
       method: "PATCH",
-      token,
       json: { accountant_id: accountantId },
     },
   );
@@ -487,39 +415,34 @@ function buildInvitationSearch(params: FirmInvitationListParams): string {
   return search.toString();
 }
 
-export async function createFirmInvitation(
-  token: string,
-  payload: { email: string; role: FirmInvitationRole },
-): Promise<FirmInvitationCreated> {
+export async function createFirmInvitation(payload: {
+  email: string;
+  role: FirmInvitationRole;
+}): Promise<FirmInvitationCreated> {
   return request<FirmInvitationCreated>("/v1/firms/me/invitations", {
     method: "POST",
-    token,
     json: payload,
   });
 }
 
 export async function listFirmInvitations(
-  token: string,
   params: FirmInvitationListParams = {},
 ): Promise<Pagina<FirmInvitation>> {
   return request<Pagina<FirmInvitation>>(
     `/v1/firms/me/invitations?${buildInvitationSearch(params)}`,
-    { token },
   );
 }
 
 export async function revokeFirmInvitation(
-  token: string,
   invitationId: string,
 ): Promise<FirmInvitation> {
   return request<FirmInvitation>(
     `/v1/firms/me/invitations/${encodeURIComponent(invitationId)}/revoke`,
-    { method: "POST", token },
+    { method: "POST" },
   );
 }
 
 export async function listMyInvitations(
-  token: string,
   params: { page?: number; page_size?: number } = {},
 ): Promise<Pagina<FirmInvitation>> {
   const search = new URLSearchParams({
@@ -528,36 +451,38 @@ export async function listMyInvitations(
   });
   return request<Pagina<FirmInvitation>>(
     `/v1/firms/invitations?${search.toString()}`,
-    { token },
   );
 }
 
 export async function previewFirmInvitation(
-  token: string,
   invitationToken: string,
 ): Promise<FirmInvitation> {
   return request<FirmInvitation>(
     `/v1/firms/invitations/${encodeURIComponent(invitationToken)}`,
-    { token },
   );
 }
 
 export async function acceptFirmInvitation(
-  token: string,
   invitationToken: string,
 ): Promise<FirmInvitation> {
   return request<FirmInvitation>(
     `/v1/firms/invitations/${encodeURIComponent(invitationToken)}/accept`,
-    { method: "POST", token },
+    { method: "POST" },
   );
 }
 
 export async function rejectFirmInvitation(
-  token: string,
   invitationToken: string,
 ): Promise<FirmInvitation> {
   return request<FirmInvitation>(
     `/v1/firms/invitations/${encodeURIComponent(invitationToken)}/reject`,
-    { method: "POST", token },
+    { method: "POST" },
+  );
+}
+
+export async function createJobTicket(jobId: string): Promise<JobTicket> {
+  return request<JobTicket>(
+    `/v1/ws/jobs/${encodeURIComponent(jobId)}/ticket`,
+    { method: "POST" },
   );
 }

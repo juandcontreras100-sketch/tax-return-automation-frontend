@@ -133,7 +133,7 @@ function PageButton({
 }
 
 export default function DashboardPage() {
-  const { user, accessToken, ready, authorized } = useRequireAuth();
+  const { user, ready, authorized } = useRequireAuth();
   const [declarations, setDeclarations] = useState<
     Pagina<DeclarationListItem> | null
   >(null);
@@ -147,12 +147,11 @@ export default function DashboardPage() {
   const hasFilters = Boolean(status || year);
 
   useEffect(() => {
-    if (!ready || !authorized || !accessToken) {
+    if (!ready || !authorized) {
       return;
     }
 
     let cancelled = false;
-    const token = accessToken;
 
     async function loadDeclarations() {
       // Microtask: evita actualizar estado de forma síncrona dentro del efecto.
@@ -165,7 +164,7 @@ export default function DashboardPage() {
       setError(null);
 
       try {
-        const result = await listDeclarations(token, {
+        const result = await listDeclarations({
           page,
           page_size: PAGE_SIZE,
           status: status || undefined,
@@ -190,7 +189,7 @@ export default function DashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, [accessToken, authorized, page, ready, reloadKey, status, year]);
+  }, [authorized, page, ready, reloadKey, status, year]);
 
   function clearFilters() {
     setStatus("");
@@ -231,9 +230,7 @@ export default function DashboardPage() {
           </div>
         </section>
 
-        {accessToken && user && !user.firm_id && (
-          <PendingInvitations token={accessToken} />
-        )}
+        {user && !user.firm_id && <PendingInvitations />}
 
         <section
           aria-labelledby="declarations-title"

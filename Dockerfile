@@ -12,10 +12,9 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-ARG NEXT_PUBLIC_API_URL=http://127.0.0.1:8080/api
+# El cliente solo usa la URL del WebSocket; la API HTTP pasa por el BFF.
 ARG NEXT_PUBLIC_WS_URL=ws://127.0.0.1:8080/api/v1/ws
-ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL \
-    NEXT_PUBLIC_WS_URL=$NEXT_PUBLIC_WS_URL \
+ENV NEXT_PUBLIC_WS_URL=$NEXT_PUBLIC_WS_URL \
     NEXT_TELEMETRY_DISABLED=1
 
 RUN npm run build

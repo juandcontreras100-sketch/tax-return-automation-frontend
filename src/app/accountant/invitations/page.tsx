@@ -6,11 +6,11 @@ import InvitationManager from "@/components/accountant/InvitationManager";
 import { useRequireAuth } from "@/lib/auth";
 
 export default function AccountantInvitationsPage() {
-  const { accessToken, ready, authorized } = useRequireAuth({
+  const { ready, authorized } = useRequireAuth({
     roles: ["admin"],
   });
 
-  if (!ready || !authorized || !accessToken) {
+  if (!ready || !authorized) {
     return <AuthLoading />;
   }
 
@@ -43,7 +43,7 @@ export default function AccountantInvitationsPage() {
           </span>
         </section>
 
-        <InvitationManager token={accessToken} />
+        <InvitationManager />
       </div>
     </AppShell>
   );

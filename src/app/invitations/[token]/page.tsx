@@ -133,7 +133,7 @@ function InvitationRoute() {
 }
 
 function InvitationView({ invitationToken }: { invitationToken: string }) {
-  const { accessToken, ready, user, logout } = useAuth();
+  const { ready, user, logout } = useAuth();
   const loginHref = `/login?next=${encodeURIComponent(
     `/invitations/${invitationToken}`,
   )}`;
@@ -152,12 +152,11 @@ function InvitationView({ invitationToken }: { invitationToken: string }) {
   const [rejected, setRejected] = useState(false);
 
   useEffect(() => {
-    if (!ready || !user || !accessToken) {
+    if (!ready || !user) {
       return;
     }
 
     let cancelled = false;
-    const authToken = accessToken;
 
     async function loadInvitation() {
       // Microtask: evita actualizar estado de forma síncrona dentro del efecto.
@@ -171,10 +170,7 @@ function InvitationView({ invitationToken }: { invitationToken: string }) {
       setErrorStatus(null);
 
       try {
-        const result = await previewFirmInvitation(
-          authToken,
-          invitationToken,
-        );
+        const result = await previewFirmInvitation(invitationToken);
         if (!cancelled) {
           setInvitation(result);
         }
@@ -197,14 +193,14 @@ function InvitationView({ invitationToken }: { invitationToken: string }) {
     return () => {
       cancelled = true;
     };
-  }, [accessToken, invitationToken, ready, reloadKey, user]);
+  }, [invitationToken, ready, reloadKey, user]);
 
   async function handleSignOut() {
     await logout(loginHref);
   }
 
   async function handleAccept() {
-    if (!accessToken || !invitation || !confirmed || action) {
+    if (!invitation || !confirmed || action) {
       return;
     }
 
@@ -212,7 +208,7 @@ function InvitationView({ invitationToken }: { invitationToken: string }) {
     setActionError(null);
 
     try {
-      const result = await acceptFirmInvitation(accessToken, invitationToken);
+      const result = await acceptFirmInvitation(invitationToken);
       setInvitation(result);
       setAccepted(true);
     } catch (cause: unknown) {
@@ -229,7 +225,7 @@ function InvitationView({ invitationToken }: { invitationToken: string }) {
   }
 
   async function handleReject() {
-    if (!accessToken || !invitation || action) {
+    if (!invitation || action) {
       return;
     }
 
@@ -237,7 +233,7 @@ function InvitationView({ invitationToken }: { invitationToken: string }) {
     setActionError(null);
 
     try {
-      const result = await rejectFirmInvitation(accessToken, invitationToken);
+      const result = await rejectFirmInvitation(invitationToken);
       setInvitation(result);
       setRejected(true);
     } catch (cause: unknown) {
@@ -259,10 +255,6 @@ function InvitationView({ invitationToken }: { invitationToken: string }) {
 
   if (!user) {
     return <LoginPrompt loginHref={loginHref} />;
-  }
-
-  if (!accessToken) {
-    return <AuthLoading />;
   }
 
   if (loading && !invitation) {

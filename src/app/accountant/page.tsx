@@ -152,7 +152,7 @@ function SessionExpiredState({ onRetry }: { onRetry: () => void }) {
 }
 
 export default function AccountantPage() {
-  const { user, accessToken, ready, authorized } = useRequireAuth({
+  const { user, ready, authorized } = useRequireAuth({
     roles: ["accountant", "admin"],
   });
 
@@ -196,11 +196,10 @@ export default function AccountantPage() {
     .join(",");
 
   useEffect(() => {
-    if (!ready || !authorized || !accessToken || !userRole) {
+    if (!ready || !authorized || !userRole) {
       return;
     }
 
-    const token = accessToken;
     const admin = userRole === "admin";
     let cancelled = false;
 
@@ -219,13 +218,13 @@ export default function AccountantPage() {
       setAssignmentErrors({});
 
       const membersRequest = admin
-        ? listFirmMembers(token, { page: 1, page_size: FIRM_PAGE_SIZE })
+        ? listFirmMembers({ page: 1, page_size: FIRM_PAGE_SIZE })
         : Promise.resolve(null);
 
       const [firmResult, clientsResult, membersResult] =
         await Promise.allSettled([
-          getMyFirm(token),
-          listFirmClients(token, { page: 1, page_size: FIRM_PAGE_SIZE }),
+          getMyFirm(),
+          listFirmClients({ page: 1, page_size: FIRM_PAGE_SIZE }),
           membersRequest,
         ]);
 
@@ -284,15 +283,14 @@ export default function AccountantPage() {
     return () => {
       cancelled = true;
     };
-  }, [accessToken, authorized, ready, reloadKey, userRole]);
+  }, [authorized, ready, reloadKey, userRole]);
 
   useEffect(() => {
-    if (!ready || !authorized || !accessToken || loading) {
+    if (!ready || !authorized || loading) {
       return;
     }
 
     const ids = declarationKey ? declarationKey.split(",") : [];
-    const token = accessToken;
     let cancelled = false;
 
     async function loadDeclarations() {
@@ -318,7 +316,7 @@ export default function AccountantPage() {
       const results = await Promise.allSettled(
         ids.map(async (clientId) => ({
           clientId,
-          page: await listDeclarations(token, {
+          page: await listDeclarations({
             page: 1,
             page_size: DECLARATIONS_PAGE_SIZE,
             taxpayer_id: clientId,
@@ -368,7 +366,6 @@ export default function AccountantPage() {
       cancelled = true;
     };
   }, [
-    accessToken,
     authorized,
     declarationKey,
     declarationsReloadKey,
@@ -380,7 +377,7 @@ export default function AccountantPage() {
     clientId: string,
     accountantId: string | null,
   ): Promise<void> {
-    if (!accessToken || !isAdmin) {
+    if (!isAdmin) {
       return;
     }
 
@@ -402,11 +399,7 @@ export default function AccountantPage() {
     );
 
     try {
-      const updated = await assignClientAccountant(
-        accessToken,
-        clientId,
-        accountantId,
-      );
+      const updated = await assignClientAccountant(clientId, accountantId);
       setClients((current) =>
         current.map((client) =>
           client.id === clientId ? { ...client, ...updated } : client,

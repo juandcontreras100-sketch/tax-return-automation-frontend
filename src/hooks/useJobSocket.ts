@@ -38,12 +38,13 @@ export type JobSocketConnection = {
 
 type UseJobSocketOptions = {
   jobId: string | null;
-  token: string | null;
+  getTicket: () => Promise<string>;
   isProcessing: boolean;
   dispatch: (action: JobSocketAction) => void;
 };
 
 export const MAX_JOB_SOCKET_RECONNECT_ATTEMPTS = 5;
+export const JOB_SOCKET_SUBPROTOCOL = "taxfrom.job.v1";
 
 const FALLBACK_WS_BASE_URL = "ws://127.0.0.1:8080/api/v1/ws";
 
@@ -88,9 +89,8 @@ export const JOB_SOCKET_BASE_URL = normalizeWsBaseUrl(
   configuredWsUrl || FALLBACK_WS_BASE_URL,
 );
 
-export function jobSocketUrl(jobId: string, token: string): string {
-  const url = `${JOB_SOCKET_BASE_URL}/jobs/${encodeURIComponent(jobId)}`;
-  return `${url}?token=${encodeURIComponent(token)}`;
+export function jobSocketUrl(jobId: string): string {
+  return `${JOB_SOCKET_BASE_URL}/jobs/${encodeURIComponent(jobId)}`;
 }
 
 function isJobSocketEvent(
@@ -116,12 +116,13 @@ function isJobSocketEvent(
 
 export function useJobSocket({
   jobId,
-  token,
+  getTicket,
   isProcessing,
   dispatch,
 }: UseJobSocketOptions): JobSocketConnection {
   const dispatchRef = useRef(dispatch);
   const processingRef = useRef(isProcessing);
+  const getTicketRef = useRef(getTicket);
   const [connection, setConnection] =
     useState<JobSocketConnection>(idleConnection);
 
@@ -134,19 +135,26 @@ export function useJobSocket({
   }, [isProcessing]);
 
   useEffect(() => {
-    if (!jobId || !token || !isProcessing) {
+    getTicketRef.current = getTicket;
+  }, [getTicket]);
+
+  useEffect(() => {
+    if (!jobId || !isProcessing) {
       return;
     }
 
     const currentJobId = jobId;
-    const currentToken = token;
     let socket: WebSocket | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let manuallyClosed = false;
     let attempts = 0;
+    let connectSequence = 0;
 
     function scheduleReconnect() {
       if (manuallyClosed || !processingRef.current) {
+        return;
+      }
+      if (reconnectTimer !== null) {
         return;
       }
 
@@ -174,15 +182,16 @@ export function useJobSocket({
 
       reconnectTimer = setTimeout(() => {
         reconnectTimer = null;
-        connect();
+        void connect();
       }, delay);
     }
 
-    function connect() {
+    async function connect() {
       if (manuallyClosed || !processingRef.current) {
         return;
       }
 
+      const sequence = ++connectSequence;
       setConnection((current) =>
         attempts > 0
           ? { ...current, status: "reconnecting" }
@@ -194,9 +203,30 @@ export function useJobSocket({
             },
       );
 
+      let ticket: string;
+      try {
+        ticket = await getTicketRef.current();
+      } catch {
+        if (!manuallyClosed && sequence === connectSequence) {
+          scheduleReconnect();
+        }
+        return;
+      }
+
+      if (
+        manuallyClosed ||
+        sequence !== connectSequence ||
+        !processingRef.current
+      ) {
+        return;
+      }
+
       let nextSocket: WebSocket;
       try {
-        nextSocket = new WebSocket(jobSocketUrl(currentJobId, currentToken));
+        nextSocket = new WebSocket(jobSocketUrl(currentJobId), [
+          JOB_SOCKET_SUBPROTOCOL,
+          ticket,
+        ]);
       } catch {
         scheduleReconnect();
         return;
@@ -205,7 +235,7 @@ export function useJobSocket({
       socket = nextSocket;
 
       nextSocket.onopen = () => {
-        if (manuallyClosed) {
+        if (manuallyClosed || socket !== nextSocket) {
           nextSocket.close();
           return;
         }
@@ -222,7 +252,7 @@ export function useJobSocket({
       };
 
       nextSocket.onmessage = (messageEvent) => {
-        if (manuallyClosed) {
+        if (manuallyClosed || socket !== nextSocket) {
           return;
         }
 
@@ -255,7 +285,7 @@ export function useJobSocket({
       };
 
       nextSocket.onerror = () => {
-        if (manuallyClosed) {
+        if (manuallyClosed || socket !== nextSocket) {
           return;
         }
         // `onclose` decide si corresponde reconectar; aquí solo dejamos rastro.
@@ -270,14 +300,15 @@ export function useJobSocket({
       };
 
       nextSocket.onclose = (closeEvent) => {
-        if (socket === nextSocket) {
-          socket = null;
+        if (socket !== nextSocket) {
+          return;
         }
+        socket = null;
         if (manuallyClosed) {
           return;
         }
 
-        // 4401/4403: token ausente, inválido o el trabajo es de otro usuario.
+        // 4401/4403: ticket ausente o inválido, o el trabajo es de otro usuario.
         if (closeEvent.code === 4401 || closeEvent.code === 4403) {
           const message =
             "La sesión no autoriza el canal en vivo. Seguiremos consultando el estado.";
@@ -320,22 +351,23 @@ export function useJobSocket({
     }
 
     // Se difiere un microtask para no actualizar estado de forma síncrona
-    // dentro del efecto; la conexión arranca inmediatamente después.
+    // dentro del efecto; el ticket se pide justo antes de conectar.
     void Promise.resolve().then(() => {
       if (!manuallyClosed) {
-        connect();
+        void connect();
       }
     });
 
     return () => {
       manuallyClosed = true;
+      connectSequence += 1;
       if (reconnectTimer !== null) {
         clearTimeout(reconnectTimer);
         reconnectTimer = null;
       }
       socket?.close();
     };
-  }, [isProcessing, jobId, token]);
+  }, [isProcessing, jobId]);
 
   return jobId && isProcessing ? connection : idleConnection;
 }

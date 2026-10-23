@@ -45,7 +45,7 @@ function DeclarationResultRoute() {
 }
 
 function DeclarationResult({ id }: { id: string }) {
-  const { accessToken, authorized, ready, user } = useRequireAuth();
+  const { authorized, ready, user } = useRequireAuth();
   const [declaration, setDeclaration] = useState<DeclarationDetail | null>(
     null,
   );
@@ -57,12 +57,11 @@ function DeclarationResult({ id }: { id: string }) {
   const [downloadError, setDownloadError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!ready || !authorized || !accessToken) {
+    if (!ready || !authorized) {
       return;
     }
 
     let cancelled = false;
-    const token = accessToken;
 
     async function loadDeclaration() {
       // Microtask: evita actualizar estado de forma síncrona dentro del efecto.
@@ -75,7 +74,7 @@ function DeclarationResult({ id }: { id: string }) {
       setError(null);
 
       try {
-        const result = await getDeclaration(token, id);
+        const result = await getDeclaration(id);
         if (cancelled) {
           return;
         }
@@ -105,7 +104,7 @@ function DeclarationResult({ id }: { id: string }) {
     return () => {
       cancelled = true;
     };
-  }, [accessToken, authorized, id, ready, reloadKey]);
+  }, [authorized, id, ready, reloadKey]);
 
   function reloadDeclaration() {
     setError(null);
@@ -115,7 +114,7 @@ function DeclarationResult({ id }: { id: string }) {
   }
 
   async function handleDownload() {
-    if (!accessToken || !declaration || downloading) {
+    if (!declaration || downloading) {
       return;
     }
 
@@ -123,7 +122,7 @@ function DeclarationResult({ id }: { id: string }) {
     setDownloadError(null);
 
     try {
-      const blob = await downloadDeclarationPdf(accessToken, declaration.id);
+      const blob = await downloadDeclarationPdf(declaration.id);
       if (!(await hasPdfSignature(blob))) {
         throw new Error(
           "El archivo recibido no es un PDF válido. Inténtalo de nuevo.",
@@ -257,11 +256,9 @@ function DeclarationResult({ id }: { id: string }) {
 
         <FormValuesTable values={declaration.form_values} />
 
-        {accessToken &&
-          user &&
+        {user &&
           (user.role === "accountant" || user.role === "admin") && (
             <CorrectionsPanel
-              token={accessToken}
               declarationId={declaration.id}
               values={declaration.form_values}
               onSaved={reloadDeclaration}
